@@ -5,6 +5,19 @@ An EQ earmarked for your ears.
 A Windows desktop app (Rust + egui) that builds a personal headphone EQ from a short hearing test,
 then lets you hear it on your own music and copy it into the EQ you already use.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/tune-dark.png">
+  <img src="docs/screenshots/tune-light.png" alt="Earmark's Tune screen: an EQ curve for each ear and a strength slider." width="720">
+</picture>
+
+To install, download `Earmark-<version>-windows-x64.zip` from the
+[latest release](https://github.com/josephmurrells/earmark/releases/latest), extract it anywhere and
+run `earmark.exe`. It needs 64-bit Windows 11 and nothing else; Windows 10 should work but hasn't
+been tested. It isn't code-signed yet, so SmartScreen may warn about an "unknown publisher" the
+first time you run it.
+
+## How it works
+
 1. **Prepare**: set a comfortable volume with a 1 kHz tone, check left and right, and choose the
    test: one ear at a time (a separate EQ for each ear) or both ears together (half the time).
 2. **Test**: short beeps at different pitches. Answer *heard* / *not heard*, or replay a tone (R).
@@ -14,6 +27,12 @@ then lets you hear it on your own music and copy it into the EQ you already use.
    time-left estimate based on your own pace show how far through you are. Silent checks flag
    guessing. Once some pitches are measured, each new one starts 5 dB above the level predicted
    from those already done.
+
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/test-dark.png">
+     <img src="docs/screenshots/test-light.png" alt="The hearing test: a progress bar, the question “Did you hear it?” and Yes and No buttons." width="560">
+   </picture>
+
 3. **Tune**: thresholds minus the ISO 226 normal-hearing curve give what's specific to you and
    your headphones. The median is removed, the result is scaled by *strength* and limited by max
    boost and cut, then fitted with low-shelf, peak and high-shelf filters, with a preamp so nothing
@@ -23,6 +42,11 @@ then lets you hear it on your own music and copy it into the EQ you already use.
    slider values for Spotify, Sony Headphones Connect, a 10-band graphic EQ or your own band
    frequencies, a filter table for parametric EQ apps, or export files (a per-ear config, and
    AutoEQ-style `ParametricEQ.txt` / `GraphicEQ.txt`).
+
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/use-dark.png">
+     <img src="docs/screenshots/use-light.png" alt="The Use screen: a music player with an EQ on/off switch, and Spotify slider values." width="560">
+   </picture>
 
 ## Not a medical test
 
@@ -77,3 +101,14 @@ those files when distributing `earmark.exe`. Audio decoding uses [Symphonia](htt
 under the Mozilla Public License 2.0; its source is available from that repository and crates.io.
 Earmark uses the Segoe UI fonts and Segoe Fluent Icons installed with Windows at runtime and doesn't
 include them.
+
+Earmark comes with no warranty: see the licences for details. Keep the volume comfortable during
+the test and when trying the EQ, as boosts make some sounds louder.
+
+Earmark isn't affiliated with or endorsed by Spotify, Sony, Microsoft or the makers of the other
+apps and devices named here. Product names are trademarks of their owners.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Please
+report security problems privately, as described in [SECURITY.md](SECURITY.md).

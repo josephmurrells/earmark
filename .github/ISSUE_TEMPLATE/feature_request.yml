@@ -1,0 +1,16 @@
+name: Idea or request
+description: Suggest something Earmark could do better, such as an EQ app to export to.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: What you're trying to do and how Earmark could help.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: For a new EQ app or device, its band frequencies, gain range and Q, or a link to them.
