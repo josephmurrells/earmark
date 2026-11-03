@@ -1,0 +1,4 @@
+[target.x86_64-pc-windows-msvc]
+# Link the C runtime statically, so earmark.exe runs without the Visual C++
+# Redistributable installed.
+rustflags = ["-C", "target-feature=+crt-static"]
