@@ -2,6 +2,8 @@
 name = "earmark"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
+publish = false
 description = "A personal headphone EQ built from a quick hearing test."
 license = "MIT OR Apache-2.0"
 

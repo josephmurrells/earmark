@@ -44,24 +44,36 @@ why the EQ is applied at partial strength: differences shrink at normal listenin
 
 ## Building
 
-Needs Rust and the MSVC build tools (the Windows SDK's `rc.exe` embeds the icon and version info).
+Needs Rust 1.95 or newer and the MSVC build tools (the Windows SDK's `rc.exe` embeds the icon and
+version info). The C runtime is linked statically, so `earmark.exe` runs without the Visual C++
+Redistributable.
 
 ```sh
 cargo run --release
 cargo test
 cargo test screenshots -- --ignored   # renders every screen, light and dark, to %TEMP%\earmark-*.png
 cargo test write_ico -- --ignored     # regenerates assets/earmark.ico after changing the icon
-cargo about generate about.hbs -o THIRD_PARTY_LICENSES.html   # after changing dependencies
 ```
+
+## Releasing
+
+CI (`.github/workflows/ci.yml`) checks formatting, clippy and tests on every push and pull request.
+To release, bump `version` in `Cargo.toml` on master, then push a matching tag, such as `v0.1.0`.
+The release workflow tests and builds it, packages
+`Earmark-<version>-windows-x64.zip` with `release/package.ps1`, and opens a draft release with the
+zip and `SHA256SUMS.txt`. Check the draft, then publish it.
+
+`release/package.ps1` can also be run locally after `cargo build --release --locked` (it needs
+`cargo-about`): `./release/package.ps1 -Version 0.1.0` writes to `dist/`.
 
 ## Licence
 
 Earmark is licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at
 your option.
 
-It's built on open-source crates under their own licences, listed with their full texts in
-[THIRD_PARTY_LICENSES.html](THIRD_PARTY_LICENSES.html); include that file when distributing
-`earmark.exe`. Audio decoding uses [Symphonia](https://github.com/pdeljanov/Symphonia), unmodified,
+It's built on open-source crates under their own licences. Release zips include all of them in
+`THIRD-PARTY-LICENSES.txt` and the `licenses` folder, generated from `release/about.toml`; include
+those files when distributing `earmark.exe`. Audio decoding uses [Symphonia](https://github.com/pdeljanov/Symphonia), unmodified,
 under the Mozilla Public License 2.0; its source is available from that repository and crates.io.
 Earmark uses the Segoe UI fonts and Segoe Fluent Icons installed with Windows at runtime and doesn't
 include them.
