@@ -1,0 +1,48 @@
+name: Bug report
+description: Something doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Earmark isn't a medical test. If you've noticed a change in your hearing, please see a doctor or audiologist.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Earmark version or commit
+      description: In the release zip's name, or Properties → Details on earmark.exe.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: headphones
+    attributes:
+      label: Headphones and connection
+      placeholder: Sennheiser HD 600, through a USB DAC
+  - type: dropdown
+    id: test_mode
+    attributes:
+      label: Test mode
+      description: If the problem is in the test or the EQ.
+      options:
+        - One ear at a time
+        - Both ears together
+        - Didn't run a test
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+  - type: textarea
+    id: crash_log
+    attributes:
+      label: Crash log
+      description: If Earmark crashed, drag in `%APPDATA%\Earmark\data\crash.log` or paste the latest report.
+      render: text

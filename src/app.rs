@@ -1219,6 +1219,9 @@ mod tests {
             )
     }
 
+    /// The outer margin, in pixels, of the frame kittest draws the UI in.
+    const HARNESS_MARGIN: u32 = 8;
+
     fn screenshot(profile: Option<&HearingProfile>, page: Page, name: &str, height: f32) {
         for dark in [false, true] {
             let mut app = app_with(profile.cloned());
@@ -1258,11 +1261,19 @@ mod tests {
             harness.run_steps(4);
             let mode = if dark { "dark" } else { "light" };
             let out = std::env::temp_dir().join(format!("earmark-{name}-{mode}.png"));
-            harness
-                .render()
-                .expect("render with wgpu")
-                .save(&out)
-                .expect("save screenshot");
+            let image = harness.render().expect("render with wgpu");
+            // Trim the margin kittest puts around the UI, which the real window doesn't have.
+            let margin = HARNESS_MARGIN;
+            image::imageops::crop_imm(
+                &image,
+                margin,
+                margin,
+                image.width() - 2 * margin,
+                image.height() - 2 * margin,
+            )
+            .to_image()
+            .save(&out)
+            .expect("save screenshot");
         }
     }
 

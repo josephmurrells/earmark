@@ -935,6 +935,7 @@ dependencies = [
  "egui_kittest",
  "fastrand",
  "hound",
+ "image",
  "raw-window-handle",
  "rfd",
  "rubato",
