@@ -18,7 +18,7 @@ body:
     attributes:
       label: Earmark version or commit
       description: In the release zip's name, or Properties → Details on earmark.exe.
-      placeholder: 0.2.0
+      placeholder: 0.3.0
     validations:
       required: true
   - type: input
