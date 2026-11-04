@@ -123,6 +123,33 @@ impl EarEq {
         FrequencyGrid::new(freqs, FIT_SAMPLE_RATE).response_db(&self.filters)
     }
 
+    /// Returns gains for an EQ whose bands are peaking filters at fixed
+    /// frequencies `bands` (ascending), all with the same `q`, such that
+    /// together they reproduce this EQ at every band centre.
+    ///
+    /// Unlike averaging the curve over each band, this accounts for how much
+    /// neighbouring bands overlap. Gains are limited to `±limit_db`.
+    #[must_use]
+    pub fn fixed_band_gains(&self, bands: &[f32], q: f32, limit_db: f32) -> Vec<f32> {
+        let desired = self.response_curve_db(bands);
+        let target: Vec<FreqPoint> = bands
+            .iter()
+            .zip(desired)
+            .map(|(&hz, db)| FreqPoint::new(hz, db))
+            .collect();
+        let mut filters: Vec<Filter> = target
+            .iter()
+            .map(|point| Filter {
+                kind: FilterKind::Peak,
+                hz: point.hz,
+                gain_db: point.db.clamp(-limit_db, limit_db),
+                q,
+            })
+            .collect();
+        fit_gains(&mut filters, &target, limit_db);
+        filters.iter().map(|filter| filter.gain_db).collect()
+    }
+
     /// Returns the largest gain of the filters across the audible range, in dB.
     #[must_use]
     pub fn peak_gain_db(&self) -> f32 {
@@ -381,12 +408,24 @@ fn fit_filters(target: &[FreqPoint], max_gain_db: f32) -> Vec<Filter> {
             }
         })
         .collect();
+    fit_gains(&mut filters, target, max_gain_db);
+    for filter in &mut filters {
+        filter.gain_db = (filter.gain_db * 10.0).round() / 10.0;
+        filter.q = (filter.q * 100.0).round() / 100.0;
+        filter.hz = filter.hz.round();
+    }
+    filters
+}
+
+/// Adjusts the gains of `filters`, one per point of `target`, until their summed
+/// response passes through every point. Frequencies and Qs stay as they are.
+fn fit_gains(filters: &mut [Filter], target: &[FreqPoint], max_gain_db: f32) {
     let freqs: Vec<f32> = target.iter().map(|p| p.hz).collect();
     let grid = FrequencyGrid::new(&freqs, FIT_SAMPLE_RATE);
     for _ in 0..FIT_ITERATIONS {
         let errors: Vec<f32> = target
             .iter()
-            .zip(grid.response_db(&filters))
+            .zip(grid.response_db(filters))
             .map(|(point, response)| point.db - response)
             .collect();
         if errors.iter().all(|e| e.abs() < FIT_TOLERANCE_DB) {
@@ -397,12 +436,6 @@ fn fit_filters(target: &[FreqPoint], max_gain_db: f32) -> Vec<Filter> {
                 (filter.gain_db + FIT_RELAXATION * error).clamp(-max_gain_db, max_gain_db);
         }
     }
-    for filter in &mut filters {
-        filter.gain_db = (filter.gain_db * 10.0).round() / 10.0;
-        filter.q = (filter.q * 100.0).round() / 100.0;
-        filter.hz = filter.hz.round();
-    }
-    filters
 }
 
 /// Converts a bandwidth in octaves to a peaking filter's Q.

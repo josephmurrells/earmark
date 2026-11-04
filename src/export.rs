@@ -2,6 +2,8 @@
 
 use std::fmt::Write as _;
 
+use serde::Serialize;
+
 use crate::biquad::Filter;
 use crate::eq_design::{EarEq, EqDesign};
 use crate::freq_point;
@@ -53,6 +55,76 @@ pub fn graphic_eq(ear: &EarEq) -> String {
     format!("GraphicEQ: {}\n", entries.join("; "))
 }
 
+/// Band centres of Edifier's 10-band EQ, in Hz.
+const EDIFIER_BANDS: [u16; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+/// Q for every band. The app defaults to 1.4 (one octave), but Earmark sets all
+/// bands together, and wider bands blend into a smoother curve: a typical EQ
+/// fits about 3 times more closely between band centres than at 1.4. Below
+/// about 0.6, neighbouring bands start cancelling each other out instead.
+const EDIFIER_Q: f32 = 0.7;
+const EDIFIER_STEP_DB: f32 = 0.5;
+/// The `globalGain` value Edifier's app writes. It appears to be the gain range:
+/// the app's EQ graph runs from -12 to +12 dB.
+const EDIFIER_GLOBAL_GAIN: i8 = 12;
+/// Each band's gain is limited to ±this, in dB.
+const EDIFIER_LIMIT_DB: f32 = EDIFIER_GLOBAL_GAIN as f32;
+/// Device name used when none is given.
+pub const EDIFIER_DEFAULT_DEVICE: &str = "g5max";
+
+/// An Edifier (and Hecate) app EQ preset, as in its exported `.eq.json` files.
+#[derive(Debug, Serialize)]
+struct EdifierPreset<'a> {
+    device_name: &'a str,
+    eq_config: EdifierConfig,
+}
+
+#[derive(Debug, Serialize)]
+struct EdifierConfig {
+    frequency: Vec<u16>,
+    gain: Vec<f32>,
+    #[serde(rename = "globalGain")]
+    global_gain: i8,
+    q: Vec<f32>,
+}
+
+/// Returns an Edifier/Hecate app `.eq.json` preset for `device_name`, which
+/// must match the name the app uses for the headphones (such as "g5max").
+///
+/// Gains are fitted to the app's fixed 10 bands and rounded to its 0.5 dB steps.
+/// Returns the file contents and whether any band hit the app's ±12 dB limit.
+#[must_use]
+pub fn edifier_eq(ear: &EarEq, device_name: &str) -> (String, bool) {
+    let bands: Vec<f32> = EDIFIER_BANDS.iter().map(|&hz| f32::from(hz)).collect();
+    let fitted = ear.fixed_band_gains(&bands, EDIFIER_Q, EDIFIER_LIMIT_DB + 1.0);
+    let limited = fitted
+        .iter()
+        .any(|gain| gain.abs() > EDIFIER_LIMIT_DB + EDIFIER_STEP_DB / 2.0);
+    let gain = fitted
+        .iter()
+        .map(|gain| {
+            let stepped = ((gain / EDIFIER_STEP_DB).round() * EDIFIER_STEP_DB)
+                .clamp(-EDIFIER_LIMIT_DB, EDIFIER_LIMIT_DB);
+            // Avoid writing "-0.0".
+            if stepped == 0.0 { 0.0 } else { stepped }
+        })
+        .collect();
+    let device_name = match device_name.trim() {
+        "" => EDIFIER_DEFAULT_DEVICE,
+        name => name,
+    };
+    let preset = EdifierPreset {
+        device_name,
+        eq_config: EdifierConfig {
+            frequency: EDIFIER_BANDS.to_vec(),
+            gain,
+            global_gain: EDIFIER_GLOBAL_GAIN,
+            q: vec![EDIFIER_Q; EDIFIER_BANDS.len()],
+        },
+    };
+    let json = serde_json::to_string_pretty(&preset).expect("plain structs always serialise");
+    (json, limited)
+}
+
 fn write_filters(out: &mut String, filters: &[Filter]) {
     for (number, filter) in filters.iter().enumerate() {
         let _ = writeln!(
@@ -98,6 +170,86 @@ mod tests {
             parametric_eq(&ear()),
             "Preamp: -4.0 dB\nFilter 1: ON PK Fc 1000 Hz Gain 4.0 dB Q 1.41\n"
         );
+    }
+
+    #[test]
+    fn edifier_preset_matches_the_app_format() {
+        let (json, limited) = edifier_eq(&ear(), "  ");
+        assert!(!limited);
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(value["device_name"], "g5max");
+        let config = &value["eq_config"];
+        assert_eq!(config["globalGain"], 12);
+        assert_eq!(
+            config["frequency"],
+            serde_json::json!([31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000])
+        );
+        let q = config["q"].as_array().expect("q array");
+        assert_eq!(q.len(), 10);
+        assert!(
+            q.iter()
+                .all(|q| (q.as_f64().expect("number") - 0.7).abs() < 1e-6)
+        );
+        let gains: Vec<f64> = config["gain"]
+            .as_array()
+            .expect("gain array")
+            .iter()
+            .map(|g| g.as_f64().expect("number"))
+            .collect();
+        assert!(gains.iter().all(|g| (g * 2.0).fract() == 0.0), "{gains:?}");
+        // The 1 kHz band carries the boost. The test peak is narrower than the
+        // app's bands, so the fit trims the neighbours to keep it narrow.
+        assert!((3.0..=6.0).contains(&gains[5]), "{gains:?}");
+        assert!(gains[5] > gains[4] && gains[5] > gains[6], "{gains:?}");
+    }
+
+    #[test]
+    fn edifier_fit_reproduces_the_curve_on_the_device() {
+        let treble = EarEq {
+            target: Vec::new(),
+            filters: vec![Filter {
+                kind: FilterKind::HighShelf,
+                hz: 3000.0,
+                gain_db: 6.0,
+                q: 0.707,
+            }],
+        };
+        let (json, _) = edifier_eq(&treble, "g5max");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        let device = EarEq {
+            target: Vec::new(),
+            filters: EDIFIER_BANDS
+                .iter()
+                .zip(value["eq_config"]["gain"].as_array().expect("gains"))
+                .map(|(&hz, gain)| Filter {
+                    kind: FilterKind::Peak,
+                    hz: f32::from(hz),
+                    gain_db: gain.as_f64().expect("number") as f32,
+                    q: EDIFIER_Q,
+                })
+                .collect(),
+        };
+        for hz in EDIFIER_BANDS {
+            let hz = f32::from(hz);
+            let error = device.response_db(hz) - treble.response_db(hz);
+            assert!(error.abs() < 0.75, "off by {error} dB at {hz} Hz");
+        }
+    }
+
+    #[test]
+    fn edifier_flags_bands_beyond_the_limit() {
+        let huge = EarEq {
+            target: Vec::new(),
+            filters: vec![Filter {
+                kind: FilterKind::Peak,
+                hz: 1000.0,
+                gain_db: 20.0,
+                q: 1.4,
+            }],
+        };
+        let (json, limited) = edifier_eq(&huge, "g5max");
+        assert!(limited);
+        assert!(json.contains("12.0"), "{json}");
     }
 
     #[test]
