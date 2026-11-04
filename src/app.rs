@@ -20,6 +20,7 @@ use crate::audio_engine::{AudioEngine, Command, EqProcessor, PreviewSource, Tone
 use crate::band_layout::BandLayout;
 use crate::eq_design::{Channels, EqDesign, EqSettings};
 use crate::export;
+use crate::hearing_score::HearingScore;
 use crate::hearing_test::{self, EarMode, HearingProfile, HearingTest, Stimulus, TestLength};
 use crate::staircase::Response;
 use crate::theme::{self, Palette};
@@ -34,6 +35,10 @@ const LEGACY_STORAGE_KEY: &str = "ear-eq";
 const PIPS_PER_TONE: u32 = 3;
 /// Range of the random pause before each tone, in seconds.
 const PAUSE_SECS: (f32, f32) = (0.5, 1.2);
+/// Pause before replaying a tone after going back.
+const BACK_PAUSE: Duration = Duration::from_millis(600);
+/// How long the last answer can still be taken back before the results show.
+const FINISHING_DELAY: Duration = Duration::from_secs(4);
 /// Level of the left/right check tones, in dBFS.
 const EAR_CHECK_LEVEL_DB: f32 = -30.0;
 /// Largest results file accepted, in bytes; real ones are a few kilobytes.
@@ -141,6 +146,9 @@ enum Phase {
     Playing { until: Instant },
     /// Waiting for an answer.
     Answering,
+    /// Every pitch is done; the results show at `until` unless the listener
+    /// goes back to change the last answer.
+    Finishing { until: Instant },
 }
 
 struct TestRun {
@@ -426,9 +434,14 @@ impl App {
 
     // ---- Prepare -----------------------------------------------------------
 
-    fn toggle_calibration(&mut self) {
-        self.calibrating = !self.calibrating;
-        if self.calibrating {
+    /// Plays the volume tone while `on` is true; only tells the engine when
+    /// this changes.
+    fn set_calibrating(&mut self, on: bool) {
+        if on == self.calibrating {
+            return;
+        }
+        self.calibrating = on;
+        if on {
             self.set_preview_playing(false);
             self.send(Command::PlayTone(Tone {
                 ear: None,
@@ -485,7 +498,8 @@ impl App {
         match run.phase {
             Phase::Pause { until } if now >= until => self.play_current_trial(),
             Phase::Playing { until } if now >= until => run.phase = Phase::Answering,
-            Phase::Pause { until } | Phase::Playing { until } => {
+            Phase::Finishing { until } if now >= until => self.finish_test(),
+            Phase::Pause { until } | Phase::Playing { until } | Phase::Finishing { until } => {
                 ctx.request_repaint_after(until - now);
             }
             Phase::Answering => {}
@@ -548,10 +562,29 @@ impl App {
             run.timed_trials += 1;
         }
         run.last_answer_at = now;
-        run.phase = Phase::Pause { until: now + pause };
-        if run.test.is_finished() {
-            self.finish_test();
+        run.phase = if run.test.is_finished() {
+            Phase::Finishing {
+                until: now + FINISHING_DELAY,
+            }
+        } else {
+            Phase::Pause { until: now + pause }
+        };
+    }
+
+    /// Takes back the last answer and plays that tone again so it can be
+    /// answered afresh. Stays paused if the test is paused.
+    fn go_back(&mut self) {
+        let Some(run) = &mut self.run else {
+            return;
+        };
+        if !run.test.undo() {
+            return;
         }
+        run.last_answer_at = Instant::now();
+        run.phase = Phase::Pause {
+            until: Instant::now() + BACK_PAUSE,
+        };
+        self.send(Command::StopTone);
     }
 
     fn toggle_pause(&mut self) {
@@ -584,7 +617,14 @@ impl App {
                  Consider retaking the test somewhere quieter.",
             );
         } else {
-            self.info("Test complete. Here's your EQ.");
+            let text = match HearingScore::new(&profile) {
+                Some(score) => format!(
+                    "Test complete. Your hearing score is {} out of 100. Here's your EQ.",
+                    score.points
+                ),
+                None => "Test complete. Here's your EQ.".to_owned(),
+            };
+            self.info(text);
         }
         self.saved.profile = Some(profile);
         self.page = Page::Tune;
@@ -1258,10 +1298,11 @@ mod tests {
                 });
             }
             let mut harness = harness(app, egui::vec2(980.0, height), dark);
-            if page == Page::Test && name == "test" {
+            if page == Page::Test && name.starts_with("test") && name != "test-intro" {
                 harness.state_mut().start_test();
                 let run = harness.state_mut().run.as_mut().expect("test started");
-                for _ in 0..70 {
+                let trials = if name == "test-done" { 10_000 } else { 70 };
+                for _ in 0..trials {
                     let Some(trial) = run.test.trial() else { break };
                     let response = match trial.stimulus {
                         Stimulus::Tone { level_db, .. } if level_db > -70.0 => Response::Heard,
@@ -1269,7 +1310,13 @@ mod tests {
                     };
                     run.test.respond(response);
                 }
-                run.phase = Phase::Answering;
+                run.phase = if run.test.is_finished() {
+                    Phase::Finishing {
+                        until: Instant::now() + Duration::from_secs(3600),
+                    }
+                } else {
+                    Phase::Answering
+                };
             }
             harness.run_steps(4);
             let mode = if dark { "dark" } else { "light" };
@@ -1297,6 +1344,7 @@ mod tests {
         let together = together_profile();
         screenshot(None, Page::Prepare, "prepare", 1000.0);
         screenshot(None, Page::Test, "test", 720.0);
+        screenshot(None, Page::Test, "test-done", 720.0);
         screenshot(Some(&separate), Page::Test, "test-intro", 800.0);
         screenshot(Some(&separate), Page::Tune, "tune", 1000.0);
         screenshot(Some(&together), Page::Tune, "tune-together", 1000.0);
@@ -1339,6 +1387,90 @@ mod tests {
         let phase = run.phase;
         app.replay();
         assert_eq!(app.run.as_ref().expect("still running").phase, phase);
+    }
+
+    #[test]
+    fn back_reopens_the_last_answer() {
+        let mut app = app_with(None);
+        app.start_test();
+        app.go_back();
+        assert!(
+            app.run.is_some(),
+            "going back before any answer is harmless"
+        );
+
+        let run = app.run.as_mut().expect("test started");
+        let first = run.test.trial();
+        run.phase = Phase::Answering;
+        app.answer(Response::Heard);
+        let run = app.run.as_mut().expect("still running");
+        assert!(run.test.can_undo());
+
+        app.go_back();
+        let run = app.run.as_mut().expect("still running");
+        assert!(matches!(run.phase, Phase::Pause { .. }), "{:?}", run.phase);
+        assert_eq!(run.test.trial(), first, "the same tone comes back");
+        assert_eq!(run.test.fraction_done(), 0.0);
+        assert!(!run.test.can_undo());
+    }
+
+    #[test]
+    fn last_answer_can_be_taken_back_before_results_show() {
+        /// Answers the current trial like a listener who hears down to -70 dBFS.
+        fn answer_next(app: &mut App) {
+            let run = app.run.as_mut().expect("test running");
+            let trial = run.test.trial().expect("a trial is left");
+            run.phase = Phase::Answering;
+            let response = match trial.stimulus {
+                Stimulus::Tone { level_db, .. } if level_db > -70.0 => Response::Heard,
+                _ => Response::NotHeard,
+            };
+            app.answer(response);
+        }
+
+        let mut app = app_with(None);
+        app.saved.test_length = TestLength::Quick;
+        app.saved.ear_mode = EarMode::Together;
+        app.start_test();
+        while !app.run.as_ref().expect("test running").test.is_finished() {
+            answer_next(&mut app);
+        }
+        let run = app
+            .run
+            .as_ref()
+            .expect("results wait for the finishing pause");
+        assert!(
+            matches!(run.phase, Phase::Finishing { .. }),
+            "{:?}",
+            run.phase
+        );
+        assert_eq!(app.page, Page::Test);
+
+        // Going back reopens the last trial; answering it finishes again.
+        app.go_back();
+        assert!(!app.run.as_ref().expect("still running").test.is_finished());
+        answer_next(&mut app);
+
+        // Once the pause is over, the results show.
+        let run = app.run.as_mut().expect("still running");
+        run.phase = Phase::Finishing {
+            until: Instant::now(),
+        };
+        app.advance_test(&egui::Context::default());
+        assert!(app.run.is_none());
+        assert_eq!(app.page, Page::Tune);
+        assert!(app.saved.profile.is_some());
+    }
+
+    #[test]
+    fn volume_tone_plays_only_while_held() {
+        let mut app = app_with(None);
+        app.set_calibrating(true);
+        assert!(app.calibrating);
+        app.set_calibrating(true);
+        assert!(app.calibrating);
+        app.set_calibrating(false);
+        assert!(!app.calibrating);
     }
 
     #[test]

@@ -111,8 +111,8 @@ pub mod icon {
     pub const MUSIC: &str = "\u{EC4F}";
     pub const PLAY: &str = "\u{E768}";
     pub const PAUSE: &str = "\u{E769}";
-    pub const STOP: &str = "\u{E71A}";
     pub const REPLAY: &str = "\u{E72C}";
+    pub const BACK: &str = "\u{E72B}";
     pub const CHECK: &str = "\u{E73E}";
     pub const CLOSE: &str = "\u{E711}";
     pub const COPY: &str = "\u{E8C8}";

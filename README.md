@@ -18,15 +18,19 @@ first time you run it.
 
 ## How it works
 
-1. **Prepare**: set a comfortable volume with a 1 kHz tone, check left and right, and choose the
-   test: one ear at a time (a separate EQ for each ear) or both ears together (half the time).
-2. **Test**: short beeps at different pitches. Answer *heard* / *not heard*, or replay a tone (R).
+1. **Prepare**: set a comfortable volume with a 1 kHz tone that plays only while you hold the
+   button, check left and right, and choose the test: one ear at a time (a separate EQ for each
+   ear) or both ears together (half the time).
+2. **Test**: short beeps at different pitches. Answer *heard* / *not heard*, replay a tone (R), or
+   go back to change earlier answers (B), including the last one before the results show.
    Each pitch and ear runs its own Hughson-Westlake-style staircase (down 10 dB when heard, up 5 dB
    when missed; the threshold is two hits on the way up within 5 dB of each other). Three pitches
    run at a time in random order with random gaps, so they finish steadily; a progress bar and a
    time-left estimate based on your own pace show how far through you are. Silent checks flag
    guessing. Once some pitches are measured, each new one starts 5 dB above the level predicted
-   from those already done.
+   from those already done. The results include a just-for-fun hearing score out of 100, based on
+   how evenly you hear across pitches and between your ears, so it compares fairly across
+   headphones and volumes.
 
    <picture>
      <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/test-dark.png">

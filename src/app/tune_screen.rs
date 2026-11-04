@@ -5,7 +5,8 @@ use egui::{Align, Layout, RichText, Slider, Ui};
 use super::{App, Page};
 use crate::charts;
 use crate::eq_design::EqSettings;
-use crate::hearing_test::Ear;
+use crate::hearing_score::HearingScore;
+use crate::hearing_test::{Ear, HearingProfile, TestLength};
 use crate::staircase::Threshold;
 use crate::theme::{self, Palette, icon};
 use crate::widgets::{self, Tone};
@@ -49,6 +50,10 @@ impl App {
                 ),
                 None,
             );
+        }
+
+        if let Some(score) = HearingScore::new(&profile) {
+            score_card(ui, score, &profile);
         }
 
         widgets::card(ui, |ui| {
@@ -250,4 +255,55 @@ impl App {
             };
         }
     }
+}
+
+/// Shows the just-for-fun hearing score.
+fn score_card(ui: &mut Ui, score: HearingScore, profile: &HearingProfile) {
+    let palette = Palette::of(ui);
+    widgets::card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(score.points.to_string())
+                    .font(theme::semibold(40.0))
+                    .color(palette.accent),
+            );
+            ui.add_space(4.0);
+            ui.vertical(|ui| {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(format!("Hearing score · {}", score.label()))
+                        .font(theme::semibold(theme::TITLE_SIZE))
+                        .color(palette.text),
+                );
+                let highest = match score.highest_heard_hz {
+                    Some(hz) if hz % 1000.0 == 0.0 => format!("{:.0} kHz", hz / 1000.0),
+                    Some(hz) if hz >= 1000.0 => format!("{:.1} kHz", hz / 1000.0),
+                    Some(hz) => format!("{hz:.0} Hz"),
+                    None => "none".to_owned(),
+                };
+                widgets::muted(ui, format!("Highest pitch heard: {highest}"));
+            });
+        });
+        ui.add_space(4.0);
+        let length = test_length(profile)
+            .map_or_else(String::new, |length| format!(" ({} test)", length.name()));
+        widgets::caption(
+            ui,
+            format!(
+                "Just for fun: out of 100, for how evenly you hear across pitches and between \
+                 your ears. Scores compare fairly across headphones and volumes, but only \
+                 between tests of the same length{length}. Not a medical test."
+            ),
+        );
+    });
+}
+
+/// Returns the test length the profile was measured with, if it matches one.
+fn test_length(profile: &HearingProfile) -> Option<TestLength> {
+    let mut frequencies: Vec<f32> = profile.measurements.iter().map(|m| m.hz).collect();
+    frequencies.sort_by(f32::total_cmp);
+    frequencies.dedup();
+    TestLength::ALL
+        .into_iter()
+        .find(|length| length.frequencies() == frequencies)
 }
