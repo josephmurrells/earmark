@@ -48,18 +48,24 @@ impl App {
                     widgets::card_title(ui, Some(2), "Set a comfortable volume");
                     widgets::muted(
                         ui,
-                        "Play the tone and raise the Windows volume until it's clear but \
-                         comfortable, like a normal conversation. Then leave it.",
+                        "Hold the button to play a tone, and raise the Windows volume until \
+                         it's clear but comfortable, like a normal conversation. Let go and \
+                         it stops at once. Then leave the volume there.",
                     );
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let (glyph, label) = if self.calibrating {
-                        (icon::STOP, "Stop")
+                        (icon::VOLUME, "Playing")
                     } else {
-                        (icon::PLAY, "Play tone")
+                        (icon::PLAY, "Hold to play")
                     };
-                    if widgets::secondary_button(ui, Some(glyph), label).clicked() {
-                        self.toggle_calibration();
+                    let held = widgets::secondary_button(ui, Some(glyph), label)
+                        .on_hover_text("The tone plays only while you hold the button.")
+                        .is_pointer_button_down_on();
+                    self.set_calibrating(held);
+                    if held {
+                        // Keep checking, so a release is never missed.
+                        ui.ctx().request_repaint();
                     }
                 });
             });

@@ -11,6 +11,7 @@ mod crash_report;
 mod eq_design;
 mod export;
 mod freq_point;
+mod hearing_score;
 mod hearing_test;
 mod pink_noise;
 mod reference;

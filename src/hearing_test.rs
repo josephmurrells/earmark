@@ -261,6 +261,19 @@ struct Band {
     started: bool,
 }
 
+/// The answer-dependent state of a test, saved before each answer so it can be
+/// taken back.
+#[derive(Debug, Clone)]
+struct Snapshot {
+    bands: Vec<Band>,
+    /// The trial that was being answered.
+    trial: Trial,
+    last_band: Option<usize>,
+    tones_played: u32,
+    catch_trials: u32,
+    false_alarms: u32,
+}
+
 /// A hearing test in progress.
 #[derive(Debug)]
 pub struct HearingTest {
@@ -270,6 +283,8 @@ pub struct HearingTest {
     tones_played: u32,
     catch_trials: u32,
     false_alarms: u32,
+    /// The state before each answer, oldest first.
+    history: Vec<Snapshot>,
     ears: EarMode,
     predict_starts: bool,
     rng: fastrand::Rng,
@@ -303,6 +318,7 @@ impl HearingTest {
             tones_played: 0,
             catch_trials: 0,
             false_alarms: 0,
+            history: Vec::new(),
             rng,
         }
     }
@@ -322,6 +338,14 @@ impl HearingTest {
         let Some(trial) = self.current.take() else {
             return;
         };
+        self.history.push(Snapshot {
+            bands: self.bands.clone(),
+            trial,
+            last_band: self.last_band,
+            tones_played: self.tones_played,
+            catch_trials: self.catch_trials,
+            false_alarms: self.false_alarms,
+        });
         match trial.band {
             Some(index) => {
                 self.bands[index].staircase.record(response);
@@ -335,6 +359,27 @@ impl HearingTest {
                 }
             }
         }
+    }
+
+    /// Returns true if there's an answer to take back.
+    #[must_use]
+    pub fn can_undo(&self) -> bool {
+        !self.history.is_empty()
+    }
+
+    /// Takes back the last answer, making its trial current again so it can be
+    /// answered afresh. Returns false if nothing has been answered yet.
+    pub fn undo(&mut self) -> bool {
+        let Some(snapshot) = self.history.pop() else {
+            return false;
+        };
+        self.bands = snapshot.bands;
+        self.current = Some(snapshot.trial);
+        self.last_band = snapshot.last_band;
+        self.tones_played = snapshot.tones_played;
+        self.catch_trials = snapshot.catch_trials;
+        self.false_alarms = snapshot.false_alarms;
+        true
     }
 
     /// Returns `(finished bands, total bands)`.
@@ -817,6 +862,66 @@ mod tests {
         assert_eq!(left, right);
         assert!(tones < 100, "{tones} tones for 7 bands");
     }
+    #[test]
+    fn undo_restores_the_answered_trial_and_state() {
+        let mut test = HearingTest::with_rng(
+            TestLength::Quick,
+            EarMode::Separate,
+            fastrand::Rng::with_seed(11),
+        );
+        assert!(!test.can_undo());
+        assert!(!test.undo(), "nothing to undo before any answer");
+
+        // Answer a few trials, then remember the state before the next one.
+        for _ in 0..6 {
+            let trial = test.trial().expect("test not finished");
+            test.respond(simulate(trial.stimulus));
+        }
+        let trial = test.trial().expect("test not finished");
+        let fraction = test.fraction_done();
+        let profile = test.profile();
+
+        // A wrong answer, then two more, all taken back.
+        test.respond(Response::Heard);
+        for _ in 0..2 {
+            let next = test.trial().expect("test not finished");
+            test.respond(simulate(next.stimulus));
+        }
+        for _ in 0..3 {
+            assert!(test.undo());
+        }
+        assert_eq!(
+            test.trial(),
+            Some(trial),
+            "the undone trial is current again"
+        );
+        assert_eq!(test.fraction_done(), fraction);
+        assert_eq!(test.profile(), profile);
+
+        // Undoing all the way back reaches the first trial.
+        while test.undo() {}
+        assert_eq!(test.fraction_done(), 0.0);
+        assert!(!test.can_undo());
+    }
+
+    #[test]
+    fn undo_reopens_a_finished_band() {
+        let mut test = HearingTest::with_rng(
+            TestLength::Quick,
+            EarMode::Together,
+            fastrand::Rng::with_seed(2),
+        );
+        while let Some(trial) = test.trial() {
+            test.respond(simulate(trial.stimulus));
+        }
+        assert!(test.is_finished());
+        assert!(test.undo());
+        assert!(!test.is_finished());
+        let trial = test.trial().expect("the last trial is back");
+        test.respond(simulate(trial.stimulus));
+        assert!(test.is_finished());
+    }
+
     #[test]
     fn progress_moves_steadily() {
         let mut test = HearingTest::with_rng(

@@ -9,6 +9,8 @@ use crate::theme::{self, Palette, icon};
 use crate::widgets::{self, ButtonKind, ButtonOptions, PulseState};
 
 const ANSWER_SIZE: Vec2 = Vec2::new(190.0, 52.0);
+/// Size of the Back and Replay buttons.
+const BACK_SIZE: Vec2 = Vec2::new(120.0, 36.0);
 
 impl App {
     /// The Test step before a test has started: what's about to happen, with
@@ -48,7 +50,7 @@ impl App {
                  hear them.",
                 "After each one, answer whether you heard it. Some checks are silent on \
                  purpose, so answer honestly.",
-                "Keys: Y or Space = yes, N = no, R = replay, P = pause.",
+                "Keys: Y or Space = yes, N = no, R = replay, B = back, P = pause.",
             ] {
                 widgets::muted(ui, format!("•  {line}"));
             }
@@ -72,6 +74,7 @@ impl App {
         let time_left = run.time_left();
         let phase = run.phase;
         let paused = run.paused;
+        let can_go_back = run.test.can_undo();
 
         // Top bar: title, progress, pause and stop.
         ui.add_space(20.0);
@@ -113,6 +116,7 @@ impl App {
             Phase::Pause { .. } => PulseState::Idle,
             Phase::Playing { .. } => PulseState::Playing,
             Phase::Answering => PulseState::Waiting,
+            Phase::Finishing { .. } => PulseState::Idle,
         };
         widgets::pulse(ui, pulse_state);
 
@@ -124,6 +128,10 @@ impl App {
                 "Some tones are very quiet, and some checks are silent.",
             ),
             Phase::Answering => ("Did you hear it?", "Answer honestly, or replay the tone."),
+            Phase::Finishing { .. } => (
+                "All done",
+                "Your results are on their way. To change your last answer, go back.",
+            ),
         };
         ui.vertical_centered(|ui| {
             ui.label(
@@ -139,6 +147,28 @@ impl App {
             centred_row(ui, 160.0, |ui| {
                 if widgets::primary_button(ui, "Resume", true).clicked() {
                     self.toggle_pause();
+                }
+            });
+        } else if matches!(phase, Phase::Finishing { .. }) {
+            centred_row(ui, ANSWER_SIZE.x, |ui| {
+                let results = widgets::button(
+                    ui,
+                    "See results",
+                    ButtonOptions {
+                        kind: ButtonKind::Primary,
+                        min_size: ANSWER_SIZE,
+                        text_size: 16.0,
+                        ..Default::default()
+                    },
+                );
+                if results.clicked() {
+                    self.finish_test();
+                }
+            });
+            ui.add_space(8.0);
+            centred_row(ui, BACK_SIZE.x, |ui| {
+                if back_button(ui, can_go_back).clicked() {
+                    self.go_back();
                 }
             });
         } else {
@@ -161,7 +191,10 @@ impl App {
                 }
             });
             ui.add_space(8.0);
-            centred_row(ui, 120.0, |ui| {
+            centred_row(ui, BACK_SIZE.x * 2.0 + ui.spacing().item_spacing.x, |ui| {
+                if back_button(ui, can_go_back).clicked() {
+                    self.go_back();
+                }
                 let replay = widgets::button(
                     ui,
                     "Replay",
@@ -169,7 +202,7 @@ impl App {
                         kind: ButtonKind::Ghost,
                         icon: Some(icon::REPLAY),
                         enabled: phase == Phase::Answering,
-                        min_size: Vec2::new(120.0, 36.0),
+                        min_size: BACK_SIZE,
                         ..Default::default()
                     },
                 );
@@ -183,20 +216,26 @@ impl App {
         ui.vertical_centered(|ui| {
             widgets::caption(
                 ui,
-                "Keys:  Y or Space = yes   ·   N = no   ·   R = replay   ·   P = pause",
+                "Keys:  Y or Space = yes   ·   N = no   ·   R = replay   ·   B = back   ·   P = pause",
             );
         });
 
-        let (yes, no, replay, pause) = ui.input(|input| {
+        let (yes, no, replay, back, pause, results) = ui.input(|input| {
             (
                 input.key_pressed(Key::Y) || input.key_pressed(Key::Space),
                 input.key_pressed(Key::N),
                 input.key_pressed(Key::R),
+                input.key_pressed(Key::B) || input.key_pressed(Key::Backspace),
                 input.key_pressed(Key::P),
+                input.key_pressed(Key::Enter),
             )
         });
-        if pause {
+        if results && !paused && matches!(phase, Phase::Finishing { .. }) {
+            self.finish_test();
+        } else if pause {
             self.toggle_pause();
+        } else if back {
+            self.go_back();
         } else if replay {
             self.replay();
         } else if yes {
@@ -205,6 +244,22 @@ impl App {
             self.answer(Response::NotHeard);
         }
     }
+}
+
+/// The button that takes back the last answer.
+fn back_button(ui: &mut Ui, enabled: bool) -> egui::Response {
+    widgets::button(
+        ui,
+        "Back",
+        ButtonOptions {
+            kind: ButtonKind::Ghost,
+            icon: Some(icon::BACK),
+            enabled,
+            min_size: BACK_SIZE,
+            ..Default::default()
+        },
+    )
+    .on_hover_text("Change your last answer (B)")
 }
 
 /// Lays out a row of known width centred horizontally.
