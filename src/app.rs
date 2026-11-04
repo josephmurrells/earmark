@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::audio_engine::{AudioEngine, Command, EqProcessor, PreviewSource, Tone, TonePattern};
 use crate::band_layout::BandLayout;
 use crate::eq_design::{Channels, EqDesign, EqSettings};
+use crate::export;
 use crate::hearing_test::{self, EarMode, HearingProfile, HearingTest, Stimulus, TestLength};
 use crate::staircase::Response;
 use crate::theme::{self, Palette};
@@ -60,6 +61,8 @@ struct Saved {
     custom_bands: String,
     /// Shift hand-copied settings so no band is above 0 dB.
     manual_headroom: bool,
+    /// Headphone name written into Edifier/Hecate presets, as the app exports it.
+    edifier_device: String,
     /// Music files added for previewing, in the order they were added.
     music: Vec<PathBuf>,
 }
@@ -102,6 +105,7 @@ impl Default for Saved {
             manual_layout: BandLayout::default(),
             custom_bands: "32, 64, 125, 250, 500, 1k, 2k, 4k, 8k, 16k".to_owned(),
             manual_headroom: true,
+            edifier_device: export::EDIFIER_DEFAULT_DEVICE.to_owned(),
             music: Vec::new(),
         }
     }
@@ -858,9 +862,14 @@ impl App {
     }
 
     fn save_text(&mut self, file_name: &str, kind: &str, contents: String) {
+        let (filter_name, extension) = if file_name.ends_with(".json") {
+            ("JSON", "json")
+        } else {
+            ("Text", "txt")
+        };
         let Some(path) = rfd::FileDialog::new()
             .set_file_name(file_name)
-            .add_filter("Text", &["txt"])
+            .add_filter(filter_name, &[extension])
             .save_file()
         else {
             return;
@@ -1227,7 +1236,11 @@ mod tests {
             let mut app = app_with(profile.cloned());
             app.page = page;
             if page == Page::Use {
-                app.open_destination = Some(Destination::AppEq);
+                app.open_destination = Some(if name == "use-files" {
+                    Destination::Files
+                } else {
+                    Destination::AppEq
+                });
                 // A short music list with the second song loaded.
                 app.saved.music = [
                     "Daft Punk - Digital Love",
@@ -1288,6 +1301,7 @@ mod tests {
         screenshot(Some(&separate), Page::Tune, "tune", 1000.0);
         screenshot(Some(&together), Page::Tune, "tune-together", 1000.0);
         screenshot(Some(&separate), Page::Use, "use", 1200.0);
+        screenshot(Some(&separate), Page::Use, "use-files", 1400.0);
     }
 
     #[test]

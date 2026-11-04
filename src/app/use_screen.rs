@@ -261,7 +261,7 @@ impl App {
             Destination::Files => (
                 icon::DOWNLOAD,
                 "Export files",
-                "AutoEQ-style text files, and your test results.",
+                "AutoEQ-style text files, Edifier presets and your test results.",
             ),
         };
         widgets::card(ui, |ui| {
@@ -457,6 +457,11 @@ impl App {
         }
         // Only the file that's asked for is generated.
         let mut export = None;
+        subsection(
+            ui,
+            "EQ files",
+            "For Equalizer APO, Peace, Poweramp, Wavelet and other apps that import AutoEQ files.",
+        );
         ui.horizontal_wrapped(|ui| {
             if widgets::secondary_button(ui, Some(icon::SAVE), "Per-ear EQ")
                 .on_hover_text(
@@ -480,6 +485,34 @@ impl App {
                 export = Some(ExportFile::Graphic);
             }
         });
+
+        subsection_gap(ui);
+        subsection(
+            ui,
+            "Edifier / Hecate",
+            "A preset for the app's 10-band EQ, fitted to your curve. Import it from the \
+             app's EQ screen.",
+        );
+        ui.horizontal(|ui| {
+            let label = ui.label("Device name");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.saved.edifier_device)
+                    .desired_width(140.0)
+                    .hint_text(export::EDIFIER_DEFAULT_DEVICE),
+            )
+            .labelled_by(label.id)
+            .on_hover_text(
+                "The \"device_name\" in a preset exported from the app. It must match your \
+                 headphones, or the app may refuse the import.",
+            );
+            ui.add_space(8.0);
+            if widgets::secondary_button(ui, Some(icon::SAVE), "Earmark.eq.json")
+                .on_hover_text("Save the preset")
+                .clicked()
+            {
+                export = Some(ExportFile::Edifier);
+            }
+        });
         if let Some(file) = export {
             let single = self.design.channels(self.saved.export_channels);
             let (name, kind, contents) = match file {
@@ -494,10 +527,24 @@ impl App {
                     export::parametric_eq(single),
                 ),
                 ExportFile::Graphic => ("GraphicEQ.txt", "Graphic EQ", export::graphic_eq(single)),
+                ExportFile::Edifier => {
+                    let (json, limited) = export::edifier_eq(single, &self.saved.edifier_device);
+                    if limited {
+                        self.info(
+                            "Some bands needed more than ±12 dB, so they're set to the limit.",
+                        );
+                    }
+                    ("Earmark.eq.json", "Edifier preset", json)
+                }
             };
             self.save_text(name, kind, contents);
         }
-        ui.add_space(8.0);
+        subsection_gap(ui);
+        subsection(
+            ui,
+            "Test results",
+            "Keep your results, or load them on another PC to get the same EQ.",
+        );
         ui.horizontal(|ui| {
             if widgets::secondary_button(ui, Some(icon::SAVE), "Save test results").clicked() {
                 self.save_results();
@@ -515,6 +562,26 @@ enum ExportFile {
     PerEar,
     Parametric,
     Graphic,
+    Edifier,
+}
+
+/// Draws a subsection heading with a one-line description under it.
+fn subsection(ui: &mut Ui, title: &str, description: &str) {
+    let palette = Palette::of(ui);
+    ui.label(
+        RichText::new(title)
+            .font(theme::semibold(theme::BODY_SIZE))
+            .color(palette.text),
+    );
+    widgets::caption(ui, description);
+    ui.add_space(8.0);
+}
+
+/// Separates two subsections with a divider line.
+fn subsection_gap(ui: &mut Ui) {
+    ui.add_space(14.0);
+    ui.separator();
+    ui.add_space(10.0);
 }
 
 /// Formats seconds as m:ss.
